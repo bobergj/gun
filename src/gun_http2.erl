@@ -350,7 +350,10 @@ tunnel_commands([SetCookie={set_cookie, _, _, _, _}|Tail], Stream, State=#http2_
 	tunnel_commands(Tail, Stream, State#http2_state{commands_queue=[SetCookie|Queue]}).
 
 continue_stream_ref(#http2_state{socket=#{handle_continue_stream_ref := ContinueStreamRef}}, StreamRef) ->
-	ContinueStreamRef ++ [StreamRef];
+	case ContinueStreamRef of
+		[_|_] -> ContinueStreamRef ++ [StreamRef];
+		_ -> [ContinueStreamRef|StreamRef]
+	end;
 continue_stream_ref(State, StreamRef) ->
 	stream_ref(State, StreamRef).
 

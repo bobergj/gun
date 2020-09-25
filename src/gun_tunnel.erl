@@ -394,13 +394,18 @@ commands([{switch_protocol, NewProtocol, ReplyTo}|Tail],
 	{_, ProtoState} = Proto:init(ReplyTo, OriginSocket, gun_tcp_proxy, ProtoOpts),
 %% @todo	EvHandlerState = EvHandler:protocol_changed(#{protocol => Protocol:name()}, EvHandlerState0),
 	commands(Tail, State#tunnel_state{protocol=Proto, protocol_state=ProtoState});
-commands([{tls_handshake, HandshakeEvent, Protocols, ReplyTo}|Tail],
+commands([{tls_handshake, HandshakeEvent0, Protocols, ReplyTo}|Tail],
 		State=#tunnel_state{transport=Transport,
 		info=#{origin_host := Host, origin_port := Port}, opts=Opts, protocol=CurrentProto,
 		protocol_origin={origin, _Scheme, OriginHost, OriginPort, Type}}) ->
 	#{
-		stream_ref := StreamRef
-	} = HandshakeEvent,
+		stream_ref := StreamRef,
+		tls_opts := TLSOpts0
+	} = HandshakeEvent0,
+	TLSOpts = gun:ensure_alpn_sni(Protocols, TLSOpts0, OriginHost),
+	HandshakeEvent = HandshakeEvent0#{
+		tls_opts => TLSOpts
+	},
 	ContinueStreamRef0 = continue_stream_ref(State),
 	ContinueStreamRef = case Type of
 		socks5 -> ContinueStreamRef0 ++ [make_ref()];
