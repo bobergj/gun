@@ -111,7 +111,15 @@ init(ReplyTo, OriginSocket, OriginTransport, Opts=#{stream_ref := StreamRef, tun
 			{_, ProtoState} = Proto:init(ReplyTo, OriginSocket, OriginTransport,
 				ProtoOpts#{stream_ref => StreamRef}),
 %% @todo	EvHandlerState = EvHandler:protocol_changed(#{protocol => Protocol:name()}, EvHandlerState0),
-			ReplyTo ! {gun_tunnel_up, self(), StreamRef, Proto:name()},
+			%% When the tunnel protocol is HTTP/1.1 or SOCKS
+			%% the gun_tunnel_up message was already sent.
+			%%
+			%% @todo There's probably a better way.
+			_ = case TunnelProtocol of
+				http -> ok;
+				socks -> ok;
+				_ -> ReplyTo ! {gun_tunnel_up, self(), StreamRef, Proto:name()}
+			end,
 			{tunnel, State#tunnel_state{socket=OriginSocket, transport=OriginTransport,
 				protocol=Proto, protocol_state=ProtoState}};
 		%% We can't initialize the protocol until the TLS handshake has completed.
@@ -172,8 +180,7 @@ handle_continue(ContinueStreamRef, {gun_tls_proxy, ProxyPid, {ok, Negotiated},
 	OriginSocket = #{
 		gun_pid => self(),
 		reply_to => ReplyTo,
-		stream_ref => StreamRef%,
-%		handle_continue_stream_ref => ContinueStreamRef
+		stream_ref => StreamRef
 	},
 	{_, ProtoState} = Proto:init(ReplyTo, OriginSocket, gun_tcp_proxy,
 		ProtoOpts#{stream_ref => StreamRef}),
@@ -269,7 +276,18 @@ request(State=#tunnel_state{protocol=Proto, protocol_state=ProtoState0,
 		InitialFlow, EvHandler, EvHandlerState0),
 	{State#tunnel_state{protocol_state=ProtoState}, EvHandlerState}.
 
-%% We pass the data forward and optionally dereference StreamRef.
+%% When the next tunnel is SOCKS we pass the data forward directly.
+%% This is needed because SOCKS has no StreamRef and the data cannot
+%% therefore be passed forward through the usual method.
+data(State=#tunnel_state{protocol=Proto, protocol_state=ProtoState0,
+		protocol_origin={origin, _, _, _, socks5}},
+		StreamRef, ReplyTo, IsFin, Data, EvHandler, EvHandlerState0) ->
+	{ProtoState, EvHandlerState} = Proto:data(ProtoState0, StreamRef,
+		ReplyTo, IsFin, Data, EvHandler, EvHandlerState0),
+	{State#tunnel_state{protocol_state=ProtoState}, EvHandlerState};
+%% CONNECT tunnels pass the data forward and dereference StreamRef
+%% unless they are the recipient of the callback, in which case the
+%% data is sent to the socket.
 data(State=#tunnel_state{socket=Socket, transport=Transport,
 		stream_ref=TunnelStreamRef0, protocol=Proto, protocol_state=ProtoState0},
 		StreamRef0, ReplyTo, IsFin, Data, EvHandler, EvHandlerState0) ->

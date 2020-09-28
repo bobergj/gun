@@ -1308,6 +1308,11 @@ add_cookie_header(PathWithQs, Headers0, State=#state{
 	end,
 	{Headers, State#state{cookie_store=Store}}.
 
+%% When the origin is using raw we do not dereference the stream_ref
+%% because it expects the full stream_ref to function (there's no
+%% other stream involved for this connection).
+dereference_stream_ref(StreamRef, #state{protocol=gun_raw}) ->
+	StreamRef;
 dereference_stream_ref(StreamRef, #state{intermediaries=Intermediaries}) ->
 	%% @todo It would be better to validate with the intermediary's stream_refs.
 	case length([http || #{protocol := http} <- Intermediaries]) of

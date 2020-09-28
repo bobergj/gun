@@ -936,7 +936,9 @@ do_handshake_completed(_, _) ->
 
 do_origin_stream(#st{origin=Type}, ConnPid, StreamRef2)
 		when Type =:= raw; Type =:= rawtls ->
-	todo;
+	gun:data(ConnPid, StreamRef2, nofin, <<"Hello world!">>),
+	{data, nofin, <<"Hello world!">>} = gun:await(ConnPid, StreamRef2),
+	StreamRef2;
 do_origin_stream(#st{}, ConnPid, StreamRef2) ->
 	StreamRef3 = gun:get(ConnPid, "/proxied", #{}, #{tunnel => StreamRef2}),
 	{response, nofin, 200, _} = gun:await(ConnPid, StreamRef3),
