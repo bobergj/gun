@@ -573,69 +573,77 @@ keepalive(State=#http2_state{socket=Socket, transport=Transport}, _, EvHandlerSt
 headers(State=#http2_state{socket=Socket, transport=Transport, opts=Opts,
 		http2_machine=HTTP2Machine0}, StreamRef, ReplyTo, Method, Host, Port,
 		Path, Headers0, InitialFlow0, EvHandler, EvHandlerState0) ->
-	{ok, StreamID, HTTP2Machine1} = cow_http2_machine:init_stream(
-		iolist_to_binary(Method), HTTP2Machine0),
-	{ok, PseudoHeaders, Headers} = prepare_headers(State, Method, Host, Port, Path, Headers0),
-	Authority = maps:get(authority, PseudoHeaders),
-	RequestEvent = #{
-		stream_ref => StreamRef,
-		reply_to => ReplyTo,
-		function => ?FUNCTION_NAME,
-		method => Method,
-		authority => Authority,
-		path => Path,
-		headers => Headers
-	},
-	EvHandlerState1 = EvHandler:request_start(RequestEvent, EvHandlerState0),
-	{ok, IsFin, HeaderBlock, HTTP2Machine} = cow_http2_machine:prepare_headers(
-		StreamID, HTTP2Machine1, nofin, PseudoHeaders, Headers),
-	Transport:send(Socket, cow_http2:headers(StreamID, IsFin, HeaderBlock)),
-	EvHandlerState = EvHandler:request_headers(RequestEvent, EvHandlerState1),
-	InitialFlow = initial_flow(InitialFlow0, Opts),
-	Stream = #stream{id=StreamID, ref=StreamRef, reply_to=ReplyTo, flow=InitialFlow,
-		authority=Authority, path=Path},
-	{create_stream(State#http2_state{http2_machine=HTTP2Machine}, Stream), EvHandlerState}.
+	case cow_http2_machine:init_stream(iolist_to_binary(Method), HTTP2Machine0) of
+		{ok, StreamID, HTTP2Machine1} ->
+			{ok, PseudoHeaders, Headers} = prepare_headers(State, Method, Host, Port, Path, Headers0),
+			Authority = maps:get(authority, PseudoHeaders),
+			RequestEvent = #{
+				stream_ref => StreamRef,
+				reply_to => ReplyTo,
+				function => ?FUNCTION_NAME,
+				method => Method,
+				authority => Authority,
+				path => Path,
+				headers => Headers
+			},
+			EvHandlerState1 = EvHandler:request_start(RequestEvent, EvHandlerState0),
+			{ok, IsFin, HeaderBlock, HTTP2Machine} = cow_http2_machine:prepare_headers(
+				StreamID, HTTP2Machine1, nofin, PseudoHeaders, Headers),
+			Transport:send(Socket, cow_http2:headers(StreamID, IsFin, HeaderBlock)),
+			EvHandlerState = EvHandler:request_headers(RequestEvent, EvHandlerState1),
+			InitialFlow = initial_flow(InitialFlow0, Opts),
+			Stream = #stream{id=StreamID, ref=StreamRef, reply_to=ReplyTo, flow=InitialFlow,
+				authority=Authority, path=Path},
+			{create_stream(State#http2_state{http2_machine=HTTP2Machine}, Stream), EvHandlerState};
+		{error, StreamError} ->
+			ReplyTo ! {gun_error, self(), StreamRef, StreamError},
+			{State, EvHandlerState0}
+	end.
 
 request(State0=#http2_state{socket=Socket, transport=Transport, opts=Opts,
 		http2_machine=HTTP2Machine0}, StreamRef, ReplyTo, Method, Host, Port,
 		Path, Headers0, Body, InitialFlow0, EvHandler, EvHandlerState0) ->
 	Headers1 = lists:keystore(<<"content-length">>, 1, Headers0,
 		{<<"content-length">>, integer_to_binary(iolist_size(Body))}),
-	{ok, StreamID, HTTP2Machine1} = cow_http2_machine:init_stream(
-		iolist_to_binary(Method), HTTP2Machine0),
-	{ok, PseudoHeaders, Headers} = prepare_headers(State0, Method, Host, Port, Path, Headers1),
-	Authority = maps:get(authority, PseudoHeaders),
-	RequestEvent = #{
-		stream_ref => StreamRef,
-		reply_to => ReplyTo,
-		function => ?FUNCTION_NAME,
-		method => Method,
-		authority => Authority,
-		path => Path,
-		headers => Headers
-	},
-	EvHandlerState1 = EvHandler:request_start(RequestEvent, EvHandlerState0),
-	IsFin0 = case iolist_size(Body) of
-		0 -> fin;
-		_ -> nofin
-	end,
-	{ok, IsFin, HeaderBlock, HTTP2Machine} = cow_http2_machine:prepare_headers(
-		StreamID, HTTP2Machine1, IsFin0, PseudoHeaders, Headers),
-	Transport:send(Socket, cow_http2:headers(StreamID, IsFin, HeaderBlock)),
-	EvHandlerState = EvHandler:request_headers(RequestEvent, EvHandlerState1),
-	InitialFlow = initial_flow(InitialFlow0, Opts),
-	Stream = #stream{id=StreamID, ref=StreamRef, reply_to=ReplyTo, flow=InitialFlow,
-		authority=Authority, path=Path},
-	State = create_stream(State0#http2_state{http2_machine=HTTP2Machine}, Stream),
-	case IsFin of
-		fin ->
-			RequestEndEvent = #{
+	case cow_http2_machine:init_stream(iolist_to_binary(Method), HTTP2Machine0) of
+		{ok, StreamID, HTTP2Machine1} ->
+			{ok, PseudoHeaders, Headers} = prepare_headers(State0, Method, Host, Port, Path, Headers1),
+			Authority = maps:get(authority, PseudoHeaders),
+			RequestEvent = #{
 				stream_ref => StreamRef,
-				reply_to => ReplyTo
+				reply_to => ReplyTo,
+				function => ?FUNCTION_NAME,
+				method => Method,
+				authority => Authority,
+				path => Path,
+				headers => Headers
 			},
-			{State, EvHandler:request_end(RequestEndEvent, EvHandlerState)};
-		nofin ->
-			maybe_send_data(State, StreamID, fin, Body, EvHandler, EvHandlerState)
+			EvHandlerState1 = EvHandler:request_start(RequestEvent, EvHandlerState0),
+			IsFin0 = case iolist_size(Body) of
+				0 -> fin;
+				_ -> nofin
+			end,
+			{ok, IsFin, HeaderBlock, HTTP2Machine} = cow_http2_machine:prepare_headers(
+				StreamID, HTTP2Machine1, IsFin0, PseudoHeaders, Headers),
+			Transport:send(Socket, cow_http2:headers(StreamID, IsFin, HeaderBlock)),
+			EvHandlerState = EvHandler:request_headers(RequestEvent, EvHandlerState1),
+			InitialFlow = initial_flow(InitialFlow0, Opts),
+			Stream = #stream{id=StreamID, ref=StreamRef, reply_to=ReplyTo, flow=InitialFlow,
+				authority=Authority, path=Path},
+			State = create_stream(State0#http2_state{http2_machine=HTTP2Machine}, Stream),
+			case IsFin of
+				fin ->
+					RequestEndEvent = #{
+						stream_ref => StreamRef,
+						reply_to => ReplyTo
+					},
+					{State, EvHandler:request_end(RequestEndEvent, EvHandlerState)};
+				nofin ->
+					maybe_send_data(State, StreamID, fin, Body, EvHandler, EvHandlerState)
+			end;
+		{error, StreamError} ->
+			ReplyTo ! {gun_error, self(), StreamRef, StreamError},
+			{State0, EvHandlerState0}
 	end.
 
 initial_flow(infinity, #{flow := InitialFlow}) -> InitialFlow;
