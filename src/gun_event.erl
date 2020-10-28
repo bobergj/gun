@@ -272,6 +272,15 @@
 
 -callback origin_changed(origin_changed_event(), State) -> State.
 
+%% setting_max_concurrent_streams_changed.
+
+-type setting_max_concurrent_streams_changed_event() :: #{
+	max_concurrent_streams := integer() | infinity
+}.
+
+-callback setting_max_concurrent_streams_changed(
+	setting_max_concurrent_streams_changed_event(), State) -> State.
+
 %% cancel.
 %%
 %% In the case of HTTP/1.1 we cannot actually cancel the stream,

@@ -41,6 +41,7 @@
 -export([protocol_changed/2]).
 -export([transport_changed/2]).
 -export([origin_changed/2]).
+-export([setting_max_concurrent_streams_changed/2]).
 -export([cancel/2]).
 -export([disconnect/2]).
 -export([terminate/2]).
@@ -121,6 +122,9 @@ transport_changed(_EventData, State) ->
 	State.
 
 origin_changed(_EventData, State) ->
+	State.
+
+setting_max_concurrent_streams_changed(_EventData, State) ->
 	State.
 
 cancel(_EventData, State) ->

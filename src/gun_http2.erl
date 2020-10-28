@@ -252,6 +252,11 @@ frame(State=#http2_state{http2_machine=HTTP2Machine0}, Frame, EvHandler, EvHandl
 		%% We only update the connection's window when receiving a lingering data frame.
 		{ok, HTTP2Machine} when element(1, Frame) =:= data ->
 			{update_window(State#http2_state{http2_machine=HTTP2Machine}), EvHandlerState};
+		{ok, HTTP2Machine} when element(1, Frame) =:= settings ->
+			EvHandlerState1 = maybe_trigger_setting_max_concurrent_streams_changed_event(
+				HTTP2Machine0, HTTP2Machine, EvHandler, EvHandlerState),
+			{maybe_ack(State#http2_state{http2_machine=HTTP2Machine}, Frame),
+				EvHandlerState1};
 		{ok, HTTP2Machine} ->
 			{maybe_ack(State#http2_state{http2_machine=HTTP2Machine}, Frame),
 				EvHandlerState};
@@ -285,6 +290,20 @@ frame(State=#http2_state{http2_machine=HTTP2Machine0}, Frame, EvHandler, EvHandl
 		{error, Error={connection_error, _, _}, HTTP2Machine} ->
 			{connection_error(State#http2_state{http2_machine=HTTP2Machine}, Error),
 				EvHandlerState}
+	end.
+
+maybe_trigger_setting_max_concurrent_streams_changed_event(HTTP2Machine0, HTTP2Machine,
+	EvHandler, EvHandlerState) ->
+	Max0 = cow_http2_machine:get_remote_setting(max_concurrent_streams, HTTP2Machine0),
+	Max = cow_http2_machine:get_remote_setting(max_concurrent_streams, HTTP2Machine),
+	if
+		Max0 /= Max ->
+			Event = #{
+				max_concurrent_streams => Max
+			},
+			EvHandler:setting_max_concurrent_streams_changed(Event, EvHandlerState);
+		true ->
+			EvHandlerState
 	end.
 
 maybe_ack(State=#http2_state{socket=Socket, transport=Transport}, Frame) ->
